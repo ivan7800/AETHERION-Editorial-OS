@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="description" content="AETHERION Editorial OS: herramienta local para auditar novelas, prompts editoriales, comparación A/B, memoria y dashboard de calidad." />
+  <title>AETHERION Editorial OS</title>
+  <link rel="stylesheet" href="styles.css" />
+  <link rel="manifest" href="manifest.webmanifest" />
+</head>
+<body>
+  <header class="topbar">
+    <div class="brand">
+      <div class="logo" aria-hidden="true">AE</div>
+      <div>
+        <h1>AETHERION Editorial OS</h1>
+        <p>Editorial Intelligence OS · auditoría narrativa · memoria · IA opcional</p>
+      </div>
+    </div>
+    <div class="top-actions">
+      <span id="autosaveStatus" class="status-pill">Local</span>
+      <button id="btnExportProject" class="ghost small">Exportar proyecto</button>
+      <label class="ghost small file-label" for="importProjectFile">Importar</label>
+      <input id="importProjectFile" class="hidden" type="file" accept=".json,application/json" />
+    </div>
+  </header>
+
+  <main class="layout">
+    <aside class="sidebar panel">
+      <section>
+        <h2>Proyecto</h2>
+        <label for="projectTitle">Título</label>
+        <input id="projectTitle" placeholder="Ej: Proyecto sin título" />
+        <label for="projectGenre">Género / tono</label>
+        <input id="projectGenre" placeholder="Ej: thriller literario, fantasía oscura..." />
+        <label for="projectGoal">Objetivo</label>
+        <select id="projectGoal">
+          <option value="publicacion">Preparar para KDP</option>
+          <option value="reescritura">Reescritura editorial</option>
+          <option value="continuidad">Continuidad y canon</option>
+          <option value="estilo">Voz, prosa y atmósfera</option>
+          <option value="estructura">Arquitectura narrativa</option>
+        </select>
+        <label for="hardness">Dureza editorial</label>
+        <select id="hardness">
+          <option value="alta">Alta</option>
+          <option value="brutal">Brutal / sin complacencia</option>
+          <option value="media">Media</option>
+        </select>
+        <label for="sourceContext">Fuentes cargadas</label>
+        <input id="sourceContext" placeholder="Novela completa, biblia, capítulos 1-20..." />
+        <label for="focusTarget">Foco opcional</label>
+        <input id="focusTarget" placeholder="Cap. 7, escena final, acto II..." />
+      </section>
+
+      <section>
+        <h2>Prompts</h2>
+        <button data-prompt="maestro" class="primary">Prompt maestro editorial</button>
+        <button data-prompt="editor10">Auditor supremo</button>
+        <button data-prompt="diagnostico">Diagnóstico total</button>
+        <button data-prompt="arquitectura">Arquitectura</button>
+        <button data-prompt="capitulos">Mapa capítulos</button>
+        <button data-prompt="personajes">Personajes</button>
+        <button data-prompt="continuidad">Continuidad / canon</button>
+        <button data-prompt="tension">Tensión y ritmo</button>
+        <button data-prompt="subtexto">Diálogos y subtexto</button>
+        <button data-prompt="voz">Voz y atmósfera</button>
+        <button data-prompt="ia">Rastros IA</button>
+        <button data-prompt="kdp">RAE / KDP</button>
+        <button data-prompt="cirugia">Cirugía de prosa</button>
+        <button data-prompt="plan">Plan de reescritura</button>
+      </section>
+
+      <section>
+        <h2>Acciones</h2>
+        <button id="btnAnalyzeResponse" class="warn">Analizar respuesta IA</button>
+        <button id="btnCopyPrompt">Copiar prompt</button>
+        <button id="btnAddToLog">Añadir al registro</button>
+        <button id="btnExportReport">Exportar informe .md</button>
+        <button id="btnSaveProject" class="good">Guardar proyecto</button>
+        <button id="btnNewProject">Nuevo proyecto</button>
+        <button id="btnResetWorkspace" class="danger">Limpiar área</button>
+      </section>
+
+      <section>
+        <h2>Historial</h2>
+        <div id="historyList" class="stack small-list empty">Sin historial.</div>
+        <button id="btnClearHistory" class="ghost">Vaciar historial</button>
+      </section>
+    </aside>
+
+    <section class="workspace">
+      <article class="panel card">
+        <div class="section-head">
+          <div>
+            <h2>1. Prompt generado</h2>
+            <p>Genera instrucciones duras para NotebookLM, ChatGPT, Claude o Gemini.</p>
+          </div>
+          <span id="promptTime" class="mono muted">—</span>
+        </div>
+        <pre id="promptOutput" class="output">Elige un botón de la izquierda. Empieza por “Prompt maestro editorial”.</pre>
+      </article>
+
+      <article class="panel card ai-card">
+        <div class="section-head">
+          <div>
+            <h2>2. Motor IA opcional</h2>
+            <p>Usa Ollama local o un endpoint compatible con OpenAI. Por defecto no se envía nada a ningún servidor.</p>
+          </div>
+          <span id="aiBridgeStatus" class="mono muted">Desconectado</span>
+        </div>
+        <div class="ai-grid">
+          <div>
+            <label for="aiProvider">Proveedor</label>
+            <select id="aiProvider">
+              <option value="off">Desactivado / manual</option>
+              <option value="ollama">Ollama local</option>
+              <option value="openai_compatible">API compatible OpenAI</option>
+            </select>
+          </div>
+          <div>
+            <label for="aiEndpoint">Endpoint</label>
+            <input id="aiEndpoint" placeholder="http://localhost:11434" />
+          </div>
+          <div>
+            <label for="aiModel">Modelo</label>
+            <input id="aiModel" placeholder="llama3.1, mistral, gpt-4o-mini..." />
+          </div>
+          <div>
+            <label for="aiApiKey">API key opcional</label>
+            <input id="aiApiKey" type="password" autocomplete="off" placeholder="No se guarda" />
+          </div>
+        </div>
+        <div class="action-row">
+          <button id="btnTestAI" class="inline">Probar conexión</button>
+          <button id="btnRunAI" class="primary inline">Enviar prompt actual</button>
+        </div>
+        <p class="muted tiny">Seguridad: la clave no se guarda en IndexedDB ni en JSON. Ollama puede requerir ejecutar la app desde servidor local si el navegador bloquea peticiones a localhost.</p>
+      </article>
+
+      <article class="panel card">
+        <div class="section-head">
+          <div>
+            <h2>3. Respuesta de IA / NotebookLM</h2>
+            <p>Pega aquí la respuesta recibida para evaluar si sirve de verdad como análisis editorial.</p>
+          </div>
+          <button id="btnPasteSample" class="ghost small">Cargar ejemplo</button>
+        </div>
+        <textarea id="aiResponse" class="large" placeholder="Pega aquí la respuesta de NotebookLM o de otra IA..."></textarea>
+      </article>
+
+      <article class="panel card">
+        <div class="section-head">
+          <div>
+            <h2>4. Diagnóstico de la respuesta</h2>
+            <p>Motor heurístico con evidencias, acciones, cobertura, vaguedad, profundidad y riesgo de plantilla.</p>
+          </div>
+          <span id="analysisTime" class="mono muted">—</span>
+        </div>
+        <pre id="analysisOutput" class="output compact">Pendiente.</pre>
+      </article>
+
+      <article class="panel card two-col-card">
+        <div class="section-head full">
+          <div>
+            <h2>5. Comparador A/B de reescritura</h2>
+            <p>Compara una versión original y una revisada para detectar mejoras, pérdidas y problemas persistentes.</p>
+          </div>
+        </div>
+        <div>
+          <label for="versionA">Versión A — original</label>
+          <textarea id="versionA" class="medium" placeholder="Pega el fragmento original..."></textarea>
+        </div>
+        <div>
+          <label for="versionB">Versión B — reescrita</label>
+          <textarea id="versionB" class="medium" placeholder="Pega el fragmento reescrito..."></textarea>
+        </div>
+        <div class="full action-row">
+          <button id="btnCompare" class="primary inline">Comparar versiones</button>
+          <button id="btnCopyCompare" class="inline">Copiar informe A/B</button>
+        </div>
+        <pre id="compareOutput" class="output compact full">Pendiente.</pre>
+      </article>
+
+      <article class="panel card">
+        <div class="section-head">
+          <div>
+            <h2>6. Auditoría de novela completa</h2>
+            <p>Pega una novela, escaleta o bloques por capítulo. El sistema calcula curva de tensión, riesgos y prioridades.</p>
+          </div>
+          <button id="btnRunNovelAudit" class="primary small">Auditar</button>
+        </div>
+        <textarea id="novelInput" class="large" placeholder="Pega aquí capítulos, escaleta o texto completo. Reconoce encabezados tipo Capítulo 1, CAPÍTULO II, 1. Título..."></textarea>
+        <div id="novelAuditOutput" class="audit-output">Pendiente.</div>
+      </article>
+
+      <article class="panel card">
+        <div class="section-head">
+          <div>
+            <h2>7. Memoria editorial</h2>
+            <p>Guarda decisiones, problemas recurrentes y reglas de estilo del proyecto.</p>
+          </div>
+          <button id="btnSaveMemory" class="good small">Guardar memoria</button>
+        </div>
+        <textarea id="memoryNote" class="medium" placeholder="Ej: Evitar cierres sentenciosos. Mantener tensión de escena. Reducir explicación y reforzar consecuencia concreta..."></textarea>
+        <div id="memoryList" class="memory-list empty">Sin memoria editorial todavía.</div>
+      </article>
+
+      <article class="panel card">
+        <div class="section-head">
+          <div>
+            <h2>8. Registro de sesión</h2>
+            <p>Notas, prompts y diagnósticos acumulados.</p>
+          </div>
+        </div>
+        <textarea id="sessionLog" class="medium" placeholder="Registro de trabajo..."></textarea>
+      </article>
+    </section>
+
+    <aside class="rightbar panel">
+      <section>
+        <h2>Dashboard global</h2>
+        <div class="kpi-grid">
+          <div class="kpi"><span>Salud</span><strong id="kpiHealth">--</strong></div>
+          <div class="kpi"><span>Riesgo KDP</span><strong id="kpiRisk">--</strong></div>
+          <div class="kpi"><span>Capítulos</span><strong id="kpiChapters">0</strong></div>
+          <div class="kpi"><span>Memorias</span><strong id="kpiMemory">0</strong></div>
+        </div>
+        <div id="dashboardBars" class="dashboard-bars"></div>
+        <p id="globalVerdict" class="verdict muted">Aún no hay datos suficientes.</p>
+      </section>
+
+      <section>
+        <h2>Calidad respuesta IA</h2>
+        <div class="score-box">
+          <div id="responseScore" class="score">--</div>
+          <div class="meter"><div id="responseFill" class="fill"></div></div>
+          <p id="responseScoreText" class="muted">Pega una respuesta y analízala.</p>
+        </div>
+        <div id="analysisBreakdown" class="breakdown"></div>
+      </section>
+
+      <section>
+        <h2>Problemas detectados</h2>
+        <div id="flagsList" class="flags empty">Sin análisis.</div>
+        <p id="nextStep" class="next-step muted">Siguiente paso pendiente.</p>
+      </section>
+
+      <section>
+        <h2>Proyectos guardados</h2>
+        <div id="projectList" class="stack small-list empty">Sin proyectos guardados.</div>
+      </section>
+
+      <section>
+        <h2>Privacidad</h2>
+        <p class="muted tiny">Modo local por defecto. IndexedDB como almacenamiento principal. Las conexiones a Ollama/API son opcionales y solo se ejecutan al pulsar el botón.</p>
+      </section>
+    </aside>
+  </main>
+
+  <div id="toast" role="status" aria-live="polite"></div>
+  <script src="app.js"></script>
+</body>
+</html>

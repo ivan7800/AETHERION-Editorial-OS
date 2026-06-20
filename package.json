@@ -1,0 +1,11 @@
+{
+  "name": "aetherion-editorial-os",
+  "version": "2.1.0",
+  "description": "Sistema editorial local-first con auditoría narrativa, IndexedDB, comparador A/B, memoria editorial e IA opcional.",
+  "private": false,
+  "scripts": {
+    "test": "node --check app.js && node tools/smoke_test_node.cjs && python3 -m py_compile tools/editor_analyzer.py"
+  },
+  "keywords": ["escritura", "editorial", "novela", "ollama", "indexeddb", "local-first", "kdp", "prompt"],
+  "license": "MIT"
+}

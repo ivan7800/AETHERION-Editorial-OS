@@ -1,0 +1,10 @@
+{
+  "name": "AETHERION Editorial OS",
+  "short_name": "AETHERION",
+  "description": "Sistema editorial local-first para auditar novelas, comparar versiones, guardar memoria e integrar IA opcional.",
+  "start_url": "./index.html",
+  "display": "standalone",
+  "background_color": "#06070d",
+  "theme_color": "#6ea8ff",
+  "icons": []
+}
