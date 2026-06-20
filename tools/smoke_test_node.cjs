@@ -35,7 +35,7 @@ const document = {
   execCommand(){ return true; },
 };
 const localStorage = {
-  data:{}, getItem(k){ return this.data[k] || null; }, setItem(k,v){ this.data[k]=String(v); }, removeItem(k){ delete this.data[k]; }
+  data:{ aetherion_editorial_os_v2_fallback: JSON.stringify({ draft: { projectTitle: 'Legacy draft', sourceContext: 'Legacy context' } }) }, getItem(k){ return this.data[k] || null; }, setItem(k,v){ this.data[k]=String(v); }, removeItem(k){ delete this.data[k]; }
 };
 const context = {
   console, document, localStorage,
@@ -47,6 +47,9 @@ const context = {
 };
 vm.createContext(context);
 vm.runInContext(fs.readFileSync('app.js','utf8'), context);
+
+if (elements.projectTitle.value !== 'Legacy draft') throw new Error('Borrador heredado no se hidrata');
+if (elements.sourceContext.value !== 'Legacy context') throw new Error('Contexto heredado no se hidrata');
 
 context.generatePrompt('maestro');
 if (!elements.promptOutput.textContent.includes('NOVELA / PROYECTO')) throw new Error('Prompt no generado');
@@ -71,5 +74,29 @@ if (!elements.memoryList.innerHTML.includes('Evitar cierres')) throw new Error('
 elements.projectTitle.value = 'Proyecto prueba';
 context.saveProject();
 if (!elements.projectList.innerHTML.includes('Proyecto prueba')) throw new Error('Proyecto no guarda/renderiza');
+
+
+
+elements.projectTitle.value = 'Autosave prueba';
+elements.sourceContext.value = 'Contexto que no debe perderse';
+context.autosaveWorkspace();
+const stored = JSON.parse(localStorage.data.aetherion_editorial_os_v2_fallback || '{}');
+if (stored.draft.projectTitle !== 'Autosave prueba') throw new Error('Autosave de borrador no persiste campos editados');
+if (stored.draft.sourceContext !== 'Contexto que no debe perderse') throw new Error('Autosave de contexto no persiste');
+
+context.newProject();
+if (elements.responseScore.textContent !== '--') throw new Error('Nuevo proyecto no limpia score previo');
+
+elements.aiProvider.value = 'openai_compatible';
+elements.aiEndpoint.value = 'https://example.test/v1/chat/completions';
+elements.aiModel.value = 'modelo-test';
+elements.aiApiKey.value = 'SECRET_DO_NOT_STORE';
+context.persistAIConfig();
+if (JSON.stringify(localStorage.data).includes('SECRET_DO_NOT_STORE')) throw new Error('API key persistida indebidamente');
+let blockedInsecure = false;
+try { context.validateAIEndpoint({ provider: 'openai_compatible', endpoint: 'http://example.com/v1/chat/completions', model: 'x', apiKey: 'secret' }); }
+catch { blockedInsecure = true; }
+if (!blockedInsecure) throw new Error('Endpoint externo inseguro con API key no fue bloqueado');
+
 
 console.log('node-smoke-ok');

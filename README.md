@@ -1,6 +1,6 @@
 # AETHERION Editorial OS
 
-**AETHERION Editorial OS v2.1** es una aplicación local-first para escritores y editores que quieren auditar una novela con rigor: prompts editoriales, evaluación de respuestas de IA, comparador A/B, auditoría por capítulos, memoria editorial, dashboard global y conexión opcional a IA.
+**AETHERION Editorial OS v2.2** es una aplicación local-first para escritores y editores que quieren auditar una novela con rigor: prompts editoriales, evaluación de respuestas de IA, comparador A/B, auditoría por capítulos, memoria editorial, dashboard global, autosave real y conexión opcional a IA.
 
 No contiene referencias a obras, personajes o universos privados. Es una base genérica y publicable.
 
@@ -13,13 +13,16 @@ No contiene referencias a obras, personajes o universos privados. Es una base ge
 - Dashboard global de salud narrativa y riesgo KDP.
 - Memoria editorial local por proyecto.
 - Historial de prompts.
+- **Autosave real del borrador actual**, incluso antes de pulsar “Guardar proyecto”.
 - Exportación de informe Markdown.
 - Importación/exportación de proyecto en JSON.
 - **IndexedDB como almacenamiento principal real**. `localStorage` queda como fallback de emergencia/migración y no duplica proyectos grandes cuando IndexedDB funciona.
 - **Motor IA opcional**:
   - Ollama local.
   - Endpoint compatible con OpenAI.
-- Claves API no persistentes: la API key no se guarda en IndexedDB ni se exporta.
+- Claves API no persistentes: la API key no se guarda en IndexedDB, localStorage ni exportaciones.
+- Validación defensiva de endpoints IA: solo URLs http(s), sin credenciales embebidas; las API keys externas se bloquean si el endpoint no usa HTTPS salvo localhost/red privada.
+- Timeout de 45 segundos en llamadas IA para evitar bloqueos largos.
 - Herramienta Python opcional para analizar archivos `.txt` o `.md` desde terminal.
 
 ## Uso rápido
@@ -107,7 +110,8 @@ aetherion-editorial-os/
 npm test
 ```
 
-Comprueba sintaxis JavaScript, funciones principales con DOM simulado y compilación del script Python opcional.
+Comprueba sintaxis JavaScript, smoke test funcional, autosave de borrador, protección de API key, validación de endpoint inseguro y compilación de la herramienta Python.
+
 
 ## Python opcional
 
@@ -119,14 +123,18 @@ python tools/editor_analyzer.py manuscrito.txt --out informe_editorial.md
 
 No instala dependencias y no usa internet.
 
-## Auditoría v2.1
+## Auditoría v2.2
 
 Esta edición incluye una pasada CTO/UX/QA/seguridad adicional:
 
+- Autosave real de borrador actual.
+- Restauración robusta de campos tras recarga.
 - Normalización de IDs importados desde JSON.
 - Límite de importación JSON de 25 MB para evitar bloqueos accidentales del navegador.
 - Eliminación de duplicado completo en `localStorage` cuando IndexedDB está activo.
 - Limpieza automática de restos antiguos en `localStorage` tras migrar a IndexedDB.
+- Validación de endpoints IA y bloqueo de API key sobre HTTP externo.
+- CSP defensiva en `index.html`.
 - Revisión de trazas privadas: no hay referencias a obras, autores o universos personales.
 
 ## Limitaciones honestas

@@ -5,6 +5,7 @@ const STORE_META_KEY = 'aetherion_editorial_os_v2_storage_meta';
 const DB_NAME = 'aetherion_editorial_os_db';
 const DB_STORE = 'workspace';
 const DB_STATE_KEY = 'state';
+const APP_VERSION = '2.2.0';
 const $ = (id) => document.getElementById(id);
 const $$ = (sel) => Array.from(document.querySelectorAll(sel));
 
@@ -124,6 +125,15 @@ Organiza por fases: problemas estructurales graves, personajes, ritmo y tensión
 Para cada fase indica qué hacer primero, por qué y qué resultado debería producir.` }
 };
 
+
+const DRAFT_FIELD_IDS = [
+  'projectTitle', 'projectGenre', 'sourceContext', 'focusTarget', 'aiResponse',
+  'versionA', 'versionB', 'novelInput', 'memoryNote', 'sessionLog'
+];
+const SELECT_FIELD_IDS = ['projectGoal', 'hardness'];
+const TEXT_PROCESSING_LIMIT = 2 * 1024 * 1024;
+const AI_TIMEOUT_MS = 45_000;
+
 const DEFAULT_STATE = {
   activeProjectId: null,
   projects: {},
@@ -134,12 +144,14 @@ const DEFAULT_STATE = {
   lastAnalysis: null,
   lastComparison: null,
   lastNovelAudit: null,
+  draft: {},
   aiConfig: { provider: 'off', endpoint: 'http://localhost:11434', model: 'llama3.1' }
 };
 
 let state = loadStateFallback();
 let saveTimer = null;
 let storageEngine = 'localStorage';
+
 
 function cloneDefaultState() {
   return JSON.parse(JSON.stringify(DEFAULT_STATE));
@@ -176,13 +188,40 @@ function normalizeState(raw) {
   normalized.activeProjectId = normalized.activeProjectId ? (idMap.get(String(normalized.activeProjectId)) || normalizeId(normalized.activeProjectId)) : null;
   if (normalized.activeProjectId && !normalized.projects[normalized.activeProjectId]) normalized.activeProjectId = null;
 
-  normalized.history = Array.isArray(normalized.history) ? normalized.history.filter(Boolean).slice(0, 80) : [];
-  normalized.memory = Array.isArray(normalized.memory) ? normalized.memory.filter(Boolean).slice(0, 120) : [];
+  normalized.history = Array.isArray(normalized.history)
+    ? normalized.history.filter(Boolean).slice(0, 80).map(item => ({
+      id: normalizeId(item.id),
+      label: String(item.label || 'Prompt').slice(0, 120),
+      content: String(item.content || '').slice(0, 250_000),
+      ts: String(item.ts || '')
+    }))
+    : [];
+
+  normalized.memory = Array.isArray(normalized.memory)
+    ? normalized.memory.filter(Boolean).slice(0, 120).map(item => ({
+      id: normalizeId(item.id),
+      note: String(item.note || '').slice(0, 100_000),
+      ts: String(item.ts || '')
+    }))
+    : [];
+
   normalized.dashboard = normalized.dashboard && typeof normalized.dashboard === 'object' ? normalized.dashboard : {};
+  normalized.draft = normalizeDraft(normalized.draft || {});
   normalized.aiConfig = normalized.aiConfig && typeof normalized.aiConfig === 'object'
     ? { provider: normalized.aiConfig.provider || 'off', endpoint: normalized.aiConfig.endpoint || 'http://localhost:11434', model: normalized.aiConfig.model || 'llama3.1' }
     : { provider: 'off', endpoint: 'http://localhost:11434', model: 'llama3.1' };
   return normalized;
+}
+
+function normalizeDraft(raw) {
+  const draft = raw && typeof raw === 'object' ? raw : {};
+  const clean = {};
+  [...DRAFT_FIELD_IDS, ...SELECT_FIELD_IDS].forEach(id => {
+    clean[id] = String(draft[id] || '').slice(0, id === 'novelInput' ? TEXT_PROCESSING_LIMIT : 300_000);
+  });
+  if (!clean.projectGoal) clean.projectGoal = 'publicacion';
+  if (!clean.hardness) clean.hardness = 'alta';
+  return clean;
 }
 
 function openDB() {
@@ -299,6 +338,65 @@ function safeDataId(value) {
   return escapeHTML(String(value || '').slice(0, 140));
 }
 
+function collectDraftData() {
+  const draft = {};
+  DRAFT_FIELD_IDS.forEach(id => { draft[id] = $(id)?.value || ''; });
+  SELECT_FIELD_IDS.forEach(id => { draft[id] = $(id)?.value || ''; });
+  return normalizeDraft(draft);
+}
+
+function applyDraftData(draft) {
+  const clean = normalizeDraft(draft || {});
+  DRAFT_FIELD_IDS.forEach(id => { if ($(id)) $(id).value = clean[id] || ''; });
+  if ($('projectGoal')) $('projectGoal').value = clean.projectGoal || 'publicacion';
+  if ($('hardness')) $('hardness').value = clean.hardness || 'alta';
+}
+
+function autosaveWorkspace() {
+  state.draft = collectDraftData();
+  if (state.activeProjectId && state.projects[state.activeProjectId]) {
+    state.projects[state.activeProjectId] = collectProjectData(state.activeProjectId);
+  }
+  setAutosave('Guardando');
+  saveState();
+}
+
+function applyProjectToForm(p = {}) {
+  $('projectTitle').value = p.title || '';
+  $('projectGenre').value = p.genre || '';
+  $('projectGoal').value = p.goal || 'publicacion';
+  $('hardness').value = p.hardness || 'alta';
+  $('sourceContext').value = p.context || '';
+  $('focusTarget').value = p.focus || '';
+  $('promptOutput').textContent = p.prompt || 'Elige un botón de la izquierda. Empieza por “Prompt maestro editorial”.';
+  $('aiResponse').value = p.aiResponse || '';
+  $('analysisOutput').textContent = p.analysis || 'Pendiente.';
+  $('versionA').value = p.versionA || '';
+  $('versionB').value = p.versionB || '';
+  $('compareOutput').textContent = p.compare || 'Pendiente.';
+  $('novelInput').value = p.novelInput || '';
+  $('memoryNote').value = p.memoryNote || '';
+  $('sessionLog').value = p.log || '';
+}
+
+function resetAnalysisPanel() {
+  $('analysisOutput').textContent = 'Pendiente.';
+  $('analysisTime').textContent = '—';
+  $('responseScore').textContent = '--';
+  $('responseScore').style.color = '';
+  $('responseFill').style.width = '0%';
+  $('responseScoreText').textContent = 'Pega una respuesta y analízala.';
+  $('analysisBreakdown').innerHTML = '';
+  $('flagsList').className = 'flags empty';
+  $('flagsList').textContent = 'Sin análisis.';
+  $('nextStep').textContent = 'Siguiente paso pendiente.';
+}
+
+function resetNovelAuditPanel() {
+  $('novelAuditOutput').className = 'audit-output';
+  $('novelAuditOutput').textContent = 'Pendiente.';
+}
+
 function nowShort() {
   return new Date().toLocaleString('es-ES', { day: '2-digit', month: '2-digit', hour: '2-digit', minute: '2-digit' });
 }
@@ -370,6 +468,7 @@ FORMATO DE RESPUESTA
   $('promptOutput').textContent = prompt;
   $('promptTime').textContent = nowShort();
   state.lastPrompt = prompt;
+  state.draft = collectDraftData();
   addHistory(template.label, prompt);
   saveState();
   toast(`Prompt generado: ${template.label}`);
@@ -489,8 +588,36 @@ function aiErrorMessage(err) {
   return msg.slice(0, 180);
 }
 
+function isLocalOrPrivateHost(hostname) {
+  const host = String(hostname || '').toLowerCase();
+  return host === 'localhost' || host === '127.0.0.1' || host === '::1' || host === '[::1]' || host.startsWith('192.168.') || host.startsWith('10.') || /^172\.(1[6-9]|2\d|3[0-1])\./.test(host);
+}
+
+function validateAIEndpoint(cfg) {
+  let url;
+  try { url = new URL(cfg.endpoint); }
+  catch { throw new Error('Endpoint IA inválido. Usa una URL http(s) completa.'); }
+  if (!['http:', 'https:'].includes(url.protocol)) throw new Error('Endpoint IA bloqueado: solo se permiten URLs http(s).');
+  if (url.username || url.password) throw new Error('No pongas credenciales dentro de la URL del endpoint.');
+  if (cfg.provider === 'openai_compatible' && cfg.apiKey && url.protocol !== 'https:' && !isLocalOrPrivateHost(url.hostname)) {
+    throw new Error('Por seguridad, una API key externa solo puede enviarse por HTTPS o a un endpoint local/privado.');
+  }
+  return url;
+}
+
+async function fetchWithTimeout(url, options = {}, ms = AI_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), ms);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 async function callAI(cfg, prompt) {
   if (!window.fetch) throw new Error('Este navegador no soporta fetch.');
+  validateAIEndpoint(cfg);
   if (cfg.provider === 'ollama') return callOllama(cfg, prompt);
   if (cfg.provider === 'openai_compatible') return callOpenAICompatible(cfg, prompt);
   throw new Error('Proveedor no configurado.');
@@ -498,7 +625,7 @@ async function callAI(cfg, prompt) {
 
 async function callOllama(cfg, prompt) {
   const endpoint = cfg.endpoint.replace(/\/$/, '');
-  const res = await fetch(`${endpoint}/api/generate`, {
+  const res = await fetchWithTimeout(`${endpoint}/api/generate`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ model: cfg.model, prompt, stream: false, options: { temperature: 0.2 } })
@@ -512,7 +639,7 @@ async function callOpenAICompatible(cfg, prompt) {
   const endpoint = cfg.endpoint.includes('/chat/completions') ? cfg.endpoint : `${cfg.endpoint.replace(/\/$/, '')}/chat/completions`;
   const headers = { 'Content-Type': 'application/json' };
   if (cfg.apiKey) headers.Authorization = `Bearer ${cfg.apiKey}`;
-  const res = await fetch(endpoint, {
+  const res = await fetchWithTimeout(endpoint, {
     method: 'POST',
     headers,
     body: JSON.stringify({
@@ -599,8 +726,10 @@ function textStats(text) {
 function evaluateAIResponse() {
   const text = $('aiResponse').value.trim();
   if (!text) { toast('Pega primero una respuesta de IA.', 'warn'); return; }
+  if (text.length > TEXT_PROCESSING_LIMIT) { toast('Respuesta demasiado grande para analizar en navegador. Divide el texto.', 'bad'); return; }
   const result = evaluateEditorialAnswer(text);
   state.lastAnalysis = result;
+  state.draft = collectDraftData();
   $('analysisOutput').textContent = renderAnalysisReport(result);
   $('analysisTime').textContent = nowShort();
   updateAnalysisUI(result);
@@ -741,6 +870,7 @@ function compareVersions() {
   const a = $('versionA').value.trim();
   const b = $('versionB').value.trim();
   if (!a || !b) { toast('Pega la versión A y la versión B.', 'warn'); return; }
+  if (a.length + b.length > TEXT_PROCESSING_LIMIT) { toast('Comparación demasiado grande. Divide el texto en fragmentos.', 'bad'); return; }
   const A = scoreNovelText(a);
   const B = scoreNovelText(b);
   const delta = B.overall - A.overall;
@@ -771,6 +901,7 @@ function compareVersions() {
   const text = report.join('\n');
   $('compareOutput').textContent = text;
   state.lastComparison = { A, B, delta, text, createdAt: nowShort() };
+  state.draft = collectDraftData();
   updateDashboard();
   saveState();
   toast('Comparación A/B completada.');
@@ -836,6 +967,7 @@ function renderNovelAudit(audit) {
 function runNovelAudit() {
   const text = $('novelInput').value.trim();
   if (!text) { toast('Pega la novela, escaleta o capítulos para auditar.', 'warn'); return; }
+  if (text.length > TEXT_PROCESSING_LIMIT) { toast('Texto demasiado grande para una auditoría en navegador. Divide por partes o usa tools/editor_analyzer.py.', 'bad'); return; }
   const chapters = parseChapters(text);
   if (!chapters.length) { toast('No hay texto suficiente para auditar.', 'warn'); return; }
   const rows = chapters.map((ch, i) => {
@@ -852,6 +984,7 @@ function runNovelAudit() {
   const avgTension = Math.round(rows.reduce((s, r) => s + r.tension, 0) / rows.length);
   const weak = rows.filter(r => r.overall < 62 || r.tension < 55).slice(0, 8);
   state.lastNovelAudit = { avg, avgTension, chapters: rows.length, rows, createdAt: nowShort() };
+  state.draft = collectDraftData();
   renderNovelAudit(state.lastNovelAudit);
  updateDashboard();
   saveState();
@@ -864,6 +997,7 @@ function saveMemory() {
   state.memory.unshift({ id: uid(), note, ts: nowShort() });
   state.memory = state.memory.slice(0, 80);
   $('memoryNote').value = '';
+  state.draft = collectDraftData();
   renderMemory();
   updateDashboard();
   saveState();
@@ -911,6 +1045,7 @@ function updateDashboard() {
 }
 
 function saveProject() {
+  state.draft = collectDraftData();
   const id = state.activeProjectId || uid();
   state.activeProjectId = id;
   state.projects[id] = collectProjectData(id);
@@ -945,6 +1080,7 @@ function collectProjectData(id = state.activeProjectId) {
       lastComparison: state.lastComparison,
       lastNovelAudit: state.lastNovelAudit,
       dashboard: state.dashboard,
+      draft: state.draft,
       aiConfig: state.aiConfig
     }
   };
@@ -954,21 +1090,7 @@ function loadProject(id) {
   const p = state.projects[id];
   if (!p) return;
   state.activeProjectId = id;
-  $('projectTitle').value = p.title || '';
-  $('projectGenre').value = p.genre || '';
-  $('projectGoal').value = p.goal || 'publicacion';
-  $('hardness').value = p.hardness || 'alta';
-  $('sourceContext').value = p.context || '';
-  $('focusTarget').value = p.focus || '';
-  $('promptOutput').textContent = p.prompt || 'Elige un botón de la izquierda. Empieza por “Prompt maestro editorial”.';
-  $('aiResponse').value = p.aiResponse || '';
-  $('analysisOutput').textContent = p.analysis || 'Pendiente.';
-  $('versionA').value = p.versionA || '';
-  $('versionB').value = p.versionB || '';
-  $('compareOutput').textContent = p.compare || 'Pendiente.';
-  $('novelInput').value = p.novelInput || '';
-  $('memoryNote').value = p.memoryNote || '';
-  $('sessionLog').value = p.log || '';
+  applyProjectToForm(p);
   if (p.stateSnapshot) {
     state.memory = p.stateSnapshot.memory || [];
     state.lastPrompt = p.stateSnapshot.lastPrompt || p.prompt || '';
@@ -978,10 +1100,11 @@ function loadProject(id) {
     state.dashboard = p.stateSnapshot.dashboard || {};
     if (p.stateSnapshot.aiConfig) state.aiConfig = normalizeState({ aiConfig: p.stateSnapshot.aiConfig }).aiConfig;
   }
+  state.draft = collectDraftData();
   hydrateAIConfig();
   renderMemory();
   if (state.lastNovelAudit) renderNovelAudit(state.lastNovelAudit); else $('novelAuditOutput').textContent = 'Pendiente.';
-  if (state.lastAnalysis) updateAnalysisUI(state.lastAnalysis);
+  if (state.lastAnalysis) updateAnalysisUI(state.lastAnalysis); else resetAnalysisPanel();
   updateDashboard();
   saveState();
   renderProjects();
@@ -1006,14 +1129,15 @@ function newProject() {
   $('projectGoal').value = 'publicacion';
   $('hardness').value = 'alta';
   $('promptOutput').textContent = 'Elige un botón de la izquierda. Empieza por “Prompt maestro editorial”.';
-  $('analysisOutput').textContent = 'Pendiente.';
+  resetAnalysisPanel();
   $('compareOutput').textContent = 'Pendiente.';
-  $('novelAuditOutput').textContent = 'Pendiente.';
+  resetNovelAuditPanel();
   state.memory = [];
   state.lastPrompt = '';
   state.lastAnalysis = null;
   state.lastComparison = null;
   state.lastNovelAudit = null;
+  state.draft = collectDraftData();
   renderMemory();
   updateDashboard();
   saveState();
@@ -1039,6 +1163,8 @@ function renderHistory() {
 function addToLog() {
   const entry = `\n\n════ ${nowShort()} ════\nPROMPT\n${$('promptOutput').textContent}\n\nDIAGNÓSTICO\n${$('analysisOutput').textContent}\n\nCOMPARACIÓN\n${$('compareOutput').textContent}`;
   $('sessionLog').value += entry;
+  state.draft = collectDraftData();
+  saveState();
   toast('Añadido al registro.');
 }
 
@@ -1088,7 +1214,8 @@ ${p.log || 'Sin registro.'}
 
 function exportProjectJSON() {
   saveProject();
-  const content = JSON.stringify({ app: 'AETHERION Editorial OS', version: '2.0.0', exportedAt: new Date().toISOString(), state: sanitizeStateForStorage(state) }, null, 2);
+  state.draft = collectDraftData();
+  const content = JSON.stringify({ app: 'AETHERION Editorial OS', version: APP_VERSION, exportedAt: new Date().toISOString(), state: sanitizeStateForStorage(state) }, null, 2);
   downloadText(content, `aetherion_proyecto_${nowFile()}.json`, 'application/json');
 }
 
@@ -1123,7 +1250,7 @@ function downloadText(content, filename, type = 'text/plain') {
   a.href = URL.createObjectURL(blob);
   a.download = filename;
   a.click();
-  URL.revokeObjectURL(a.href);
+  setTimeout(() => URL.revokeObjectURL(a.href), 1000);
 }
 
 function slug(text) {
@@ -1131,6 +1258,11 @@ function slug(text) {
 }
 
 function renderAll() {
+  if (state.draft && Object.values(state.draft).some(Boolean)) {
+    applyDraftData(state.draft);
+  } else if (state.activeProjectId && state.projects[state.activeProjectId]) {
+    applyProjectToForm(state.projects[state.activeProjectId]);
+  }
   hydrateAIConfig();
   renderHistory();
   renderProjects();
@@ -1139,9 +1271,11 @@ function renderAll() {
   if (state.lastAnalysis) {
     $('analysisOutput').textContent = renderAnalysisReport(state.lastAnalysis);
     updateAnalysisUI(state.lastAnalysis);
+  } else {
+    resetAnalysisPanel();
   }
   if (state.lastComparison) $('compareOutput').textContent = state.lastComparison.text;
-  if (state.lastNovelAudit) renderNovelAudit(state.lastNovelAudit);
+  if (state.lastNovelAudit) renderNovelAudit(state.lastNovelAudit); else resetNovelAuditPanel();
   updateDashboard();
 }
 
@@ -1219,8 +1353,9 @@ function bindEvents() {
     if (load) loadProject(load.dataset.loadProject);
   });
 
-  ['projectTitle','projectGenre','sourceContext','focusTarget','aiResponse','versionA','versionB','novelInput','memoryNote','sessionLog','aiEndpoint','aiModel'].forEach(id => {
-    $(id).addEventListener('input', () => setAutosave('Editando'));
+  [...DRAFT_FIELD_IDS, ...SELECT_FIELD_IDS].forEach(id => {
+    $(id).addEventListener('input', autosaveWorkspace);
+    $(id).addEventListener('change', autosaveWorkspace);
   });
 }
 
